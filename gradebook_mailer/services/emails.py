@@ -86,14 +86,17 @@ def _enviar_lote(clase: dict, pendientes: list[dict]) -> int:
                     estudiante.get('apellido') or '',
                     conexion,
                 )
+                
                 try:
                     db.registrar_envio_asistencia(asistencia['id'], True, intentos, None)
                     enviados += 1
                 except Exception as error_registro:
                     logger.error(f"[asistencia] No se pudo registrar el envío exitoso en DB para {estudiante.get('email')}: {error_registro}")
+                    
                     return enviados
             except Exception as error:
                 logger.error(f"[asistencia] Falló el envío del QR a {estudiante.get('email')}: {error}")
+                
                 _registrar_error_envio(asistencia['id'], intentos, error)
 
     return enviados
@@ -116,8 +119,10 @@ def _enviar_email_qr_con_reintento(destinatario: str, nombre: str, clase: dict,
             return conexion
         except Exception as error:
             intento += 1
+            
             if intento > ASISTENCIA_EMAILS_MAX_REINTENTOS or not _es_error_transitorio_de_email(error):
                 raise
+            
             logger.warning(f"[asistencia] Reintentando envío a {destinatario} (intento {intento}/{ASISTENCIA_EMAILS_MAX_REINTENTOS}): {error}")
             conexion = None
             time.sleep(ASISTENCIA_EMAILS_BACKOFF_MS / 1000 * (2 ** (intento - 1)))

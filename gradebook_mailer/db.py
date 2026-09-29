@@ -135,8 +135,10 @@ def _ejecutar_con_reintento(constructor):
             return constructor(cliente).execute()
         except Exception as error:
             intento += 1
+            
             if intento >= ASISTENCIA_DB_MAX_REINTENTOS or not _es_error_de_red(error):
                 raise
+            
             logger.warning(f'[db] Error de red en Supabase (intento {intento}/{ASISTENCIA_DB_MAX_REINTENTOS}): {error}')
             time.sleep(ASISTENCIA_DB_BACKOFF_MS / 1000 * (2 ** (intento - 1)))
             _recrear_cliente_supabase()

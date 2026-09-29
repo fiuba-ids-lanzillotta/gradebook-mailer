@@ -30,6 +30,7 @@ def requiere_firma_qstash():
         def wrapper(*args, **kwargs):
             if not _firma_configurada():
                 logger.warning('[firma] Sin signing keys configuradas; request aceptado sin verificar (modo dev)')
+                
                 return vista(*args, **kwargs)
 
             try:
@@ -40,6 +41,7 @@ def requiere_firma_qstash():
                 )
             except SignatureError as error:
                 logger.warning(f'[firma] Firma inválida: {error}')
+
                 return jsonify({'ok': False, 'error': 'firma inválida'}), 401
 
             return vista(*args, **kwargs)

@@ -62,4 +62,5 @@ def _responder(procesar):
         return jsonify(procesar(body)), 200
     except ValueError as error:
         logger.warning(f'[emails] Mensaje descartado (no reintentable): {error}')
+        
         return jsonify({'ok': False, 'error': str(error)}), 200

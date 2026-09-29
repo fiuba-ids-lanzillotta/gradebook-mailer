@@ -45,6 +45,7 @@ def conexion_email():
         conexion = gestor.__enter__()
     except Exception as error:
         logger.warning(f'[asistencia] Sin conexión SMTP compartida ({error}); se enviará con una por email')
+        
         yield None
         return
 
