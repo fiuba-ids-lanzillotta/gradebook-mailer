@@ -1,0 +1,224 @@
+openapi: 3.0.3
+info:
+  title: gradebook-mailer
+  description: >
+    Worker serverless de emails para gradebook-api. Consume mensajes encolados por la API en
+    Upstash QStash (un POST por mensaje a estos endpoints) y envía los emails por SMTP
+    (Flask-Mail): QRs de asistencia, confirmación de asistencia, bienvenida a docentes y
+    recuperación de contraseña.
+
+    Los endpoints `/emails/*` exigen el header `Upstash-Signature` (JWT firmado por QStash con
+    la signing key; se verifica con `qstash.Receiver`). Sin signing keys configuradas la
+    verificación se saltea con warning (modo dev: permite pegarle con curl/Bruno en local).
+
+    Semántica de respuestas pensada para QStash:
+    - `200` = mensaje procesado, o error **no reintentable** (payload inválido, recurso
+      inexistente): se loguea y se descarta; reintentar no arregla nada.
+    - `401` = firma inválida.
+    - `5xx` = falla transitoria/infra (Supabase o SMTP caídos): QStash reintenta con backoff
+      y después manda a la DLQ.
+  version: 1.0.0
+
+servers:
+  - url: http://localhost:5002
+    description: Desarrollo local
+  - url: https://gradebook-mailer.vercel.app
+    description: Producción (Vercel)
+
+tags:
+  - name: emails
+    description: Consumo de mensajes de QStash (un endpoint por tipo de email)
+  - name: health
+    description: Liveness (sin firma)
+
+paths:
+  /emails/qr-lote:
+    post:
+      tags: [emails]
+      summary: Envía los QRs de un lote de asistencias (~5 por mensaje)
+      description: >
+        Lee las asistencias de Supabase, genera el QR PNG del `codigo` de cada una y envía el
+        email por una conexión SMTP compartida con pausas y reintentos ante errores
+        transitorios. Registra el resultado por asistencia (`enviado`, `envio_intentos`,
+        `envio_error`, `enviado_at`). Idempotente: solo procesa las que siguen
+        `enviado=false`, así un reintento de QStash no reenvía lo ya enviado. Un email que
+        falla no corta el lote ni cambia el status de respuesta (queda en la base,
+        reencolable con `reintentar=true` en la API).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [clase_id, asistencia_ids]
+              properties:
+                clase_id:        { type: integer, example: 5 }
+                asistencia_ids:  { type: array, items: { type: integer }, minItems: 1, example: [1, 2, 3, 4, 5] }
+      responses:
+        '200':
+          description: Mensaje procesado (los errores por email quedan registrados en la base)
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/QrLoteResultado'
+                  - $ref: '#/components/schemas/ErrorNoReintentable'
+        '401': { $ref: '#/components/responses/FirmaInvalida' }
+        '500': { description: Falla transitoria — QStash reintenta el mensaje }
+
+  /emails/confirmacion:
+    post:
+      tags: [emails]
+      summary: Email de confirmación de asistencia registrada
+      description: >
+        Lee la asistencia (con estudiante y clase) de Supabase y envía la confirmación. La
+        API publica este mensaje solo la primera vez que la asistencia pasa a 'presente'.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [asistencia_id]
+              properties:
+                asistencia_id: { type: integer, example: 123 }
+      responses:
+        '200':
+          description: Confirmación enviada
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ResultadoAsistencia'
+                  - $ref: '#/components/schemas/ErrorNoReintentable'
+        '401': { $ref: '#/components/responses/FirmaInvalida' }
+        '500': { description: Falla transitoria — QStash reintenta el mensaje }
+
+  /emails/bienvenida:
+    post:
+      tags: [emails]
+      summary: Email de bienvenida a docente con su contraseña temporal
+      description: >
+        No toca Supabase: todo lo necesario viaja en el payload (la password temporal solo
+        existe en claro acá; en la base queda el hash bcrypt).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [destinatario, rol, password]
+              properties:
+                destinatario: { type: string, example: docente@fi.uba.ar }
+                nombre:       { type: string, example: Ada }
+                apellido:     { type: string, example: Lovelace }
+                rol:          { type: string, example: Ayudante }
+                password:     { type: string, example: 'aB3#kL9mN2pQ' }
+      responses:
+        '200':
+          description: Email enviado
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ResultadoDestinatario'
+                  - $ref: '#/components/schemas/ErrorNoReintentable'
+        '401': { $ref: '#/components/responses/FirmaInvalida' }
+        '500': { description: Falla transitoria — QStash reintenta el mensaje }
+
+  /emails/recuperacion:
+    post:
+      tags: [emails]
+      summary: Email con el link de recuperación de contraseña
+      description: >
+        No toca Supabase: el link con el token de un solo uso viaja armado en el payload.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [destinatario, link]
+              properties:
+                destinatario: { type: string, example: estudiante@fi.uba.ar }
+                nombre:       { type: string, example: Ana }
+                apellido:     { type: string, example: Perez }
+                link:         { type: string, example: 'https://front/admin/cambiar-contrasena?token=abc' }
+      responses:
+        '200':
+          description: Email enviado
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ResultadoDestinatario'
+                  - $ref: '#/components/schemas/ErrorNoReintentable'
+        '401': { $ref: '#/components/responses/FirmaInvalida' }
+        '500': { description: Falla transitoria — QStash reintenta el mensaje }
+
+  /health:
+    get:
+      tags: [health]
+      summary: Liveness del servicio
+      security: []
+      responses:
+        '200':
+          description: Servicio vivo
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:       { type: boolean, example: true }
+                  servicio: { type: string, example: gradebook-mailer }
+
+components:
+  securitySchemes:
+    qstashSignature:
+      type: apiKey
+      in: header
+      name: Upstash-Signature
+      description: JWT HS256 firmado por QStash con la signing key (claims iss=Upstash, sub=url, body=sha256).
+
+  schemas:
+    QrLoteResultado:
+      type: object
+      properties:
+        ok:         { type: boolean, example: true }
+        clase_id:   { type: integer, example: 5 }
+        recibidas:  { type: integer, example: 5, description: Asistencias recibidas en el mensaje }
+        pendientes: { type: integer, example: 4, description: Cuántas seguían enviado=false al procesar }
+        enviados:   { type: integer, example: 3, description: Emails enviados ok en este lote }
+
+    ResultadoAsistencia:
+      type: object
+      properties:
+        ok:            { type: boolean, example: true }
+        asistencia_id: { type: integer, example: 123 }
+
+    ResultadoDestinatario:
+      type: object
+      properties:
+        ok:           { type: boolean, example: true }
+        destinatario: { type: string, example: docente@fi.uba.ar }
+
+    ErrorNoReintentable:
+      type: object
+      description: Mensaje descartado (payload inválido o recurso inexistente); QStash no reintenta.
+      properties:
+        ok:    { type: boolean, example: false }
+        error: { type: string, example: 'Payload inválido: faltan link' }
+
+  responses:
+    FirmaInvalida:
+      description: El header Upstash-Signature no verificó (firma, sub/url o body hash inválidos)
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              ok:    { type: boolean, example: false }
+              error: { type: string, example: 'firma inválida' }
+
+security:
+  - qstashSignature: []
