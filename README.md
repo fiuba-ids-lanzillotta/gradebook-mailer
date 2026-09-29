@@ -49,7 +49,15 @@ python -m compileall -q gradebook_mailer app.py # syntax check
 
 ## Variables de entorno
 
-Ver `.env.example`. Puntos clave:
+Ver `.env.example`. Para correr el worker contra la **base local** de Supabase
+(`supabase start` en `gradebook-api`): `.env.local` copia el `.env` y solo cambia
+`SUPABASE_URL`/`SUPABASE_KEY`; `scripts\use_local_db.bat` / `scripts\use_prod_db.bat`
+swappean el `.env` (ambos archivos gitignored). Con `MAIL_*` configuradas el worker envía
+emails reales. Si además querés que **QStash le entregue los mensajes al worker local**
+(en vez del deploy de Vercel), exponelo con un túnel (`npx localtunnel --port 5002` o
+`ngrok http 5002`) y poné esa URL en `MAIL_WORKER_URL` de la API.
+
+Puntos clave:
 
 - Sin `QSTASH_*_SIGNING_KEY` la verificación de firma se saltea (modo dev, con
   warning) — permite pegarle a los endpoints con curl/Bruno en local.

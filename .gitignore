@@ -216,3 +216,7 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Env locales alternativos (worker local contra la base en Docker)
+.env.local
+.env.prod
