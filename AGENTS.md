@@ -105,6 +105,8 @@ the QStash signing keys (Upstash console → QStash). On key rotation set the ne
 - Do not return `5xx` for per-email or payload errors — QStash would retry forever.
 - Do not change a payload contract without updating the `cola.publicar` callers in
   gradebook-api (and vice versa).
+- Do not run writes/migrations against the production Supabase project via the MCP server
+  without explicit confirmation (reads are fine).
 
 ## Git
 
