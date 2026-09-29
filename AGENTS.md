@@ -30,6 +30,11 @@ Context and design decisions live in `docs/worker-asincrono-qrs.md` of the
 ## How to run
 
 ```bash
+# setup + run (crea el venv, instala deps y levanta el worker en :5002)
+scripts\setup_virtualenv.bat   # Windows          (variante pipenv: scripts\setup_pipenv.bat)
+scripts/setup_virtualenv.sh    # Linux / macOS    (variante pipenv: scripts/setup_pipenv.sh)
+
+# o manualmente
 python -m venv .venv && .venv\Scripts\activate   # (source .venv/bin/activate on Linux/macOS)
 pip install -r requirements.txt
 python app.py                                  # serves on :5002

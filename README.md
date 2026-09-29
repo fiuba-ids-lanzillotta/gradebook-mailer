@@ -31,6 +31,9 @@ las requests van sin firma — el modo dev del worker la saltea).
 ## Setup
 
 ```bash
+scripts\setup_virtualenv.bat   # Windows          (también: scripts\setup_pipenv.bat)
+scripts/setup_virtualenv.sh    # Linux / macOS    (también: scripts/setup_pipenv.sh)
+# o manualmente
 python -m venv .venv && .venv\Scripts\activate   # (source .venv/bin/activate en Linux/macOS)
 pip install -r requirements.txt
 python app.py    # levanta en :5002
