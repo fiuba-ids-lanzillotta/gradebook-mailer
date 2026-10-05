@@ -5,6 +5,7 @@ Tests de los servicios de emails y los endpoints, con db y mailer mockeados
 import base64
 import hashlib
 import json
+import smtplib
 import time
 
 import jwt
@@ -64,6 +65,49 @@ def test_procesar_qr_lote_registra_error_sin_cortar(monkeypatch):
 
     assert resultado['enviados'] == 0
     assert registros[0][0] is False and registros[0][1] == 1 and 'smtp' in registros[0][2]
+
+
+def test_procesar_qr_lote_reintenta_error_smtp_transitorio(monkeypatch):
+    monkeypatch.setattr(db, 'obtener_clase_por_id', lambda cid: {'id': 5, 'cursada_id': 9, 'fecha': '2026-09-01', 'titulo': None, 'estado': 'abierta'})
+    monkeypatch.setattr(db, 'buscar_asistencias_por_ids', lambda ids: [
+        {'id': 1, 'codigo': 'AAAA2345', 'envio_intentos': 0, 'estudiantes': {'nombre': 'Ana', 'email': 'a@fi.uba.ar'}},
+    ])
+    monkeypatch.setattr(time, 'sleep', lambda *_: None)
+
+    llamadas = {'n': 0}
+
+    def falla_una_vez(*a, **k):
+        llamadas['n'] += 1
+        if llamadas['n'] == 1:
+            raise smtplib.SMTPDataError(421, b'4.3.0 Temporary System Problem. Try again later.')
+
+    monkeypatch.setattr(mailer, 'enviar_email_qr_asistencia', falla_una_vez)
+    monkeypatch.setattr(db, 'registrar_envio_asistencia', lambda aid, ok, intentos, err: None)
+
+    resultado = emails.procesar_qr_lote({'clase_id': 5, 'asistencia_ids': [1]})
+
+    assert resultado['enviados'] == 1 and llamadas['n'] == 2
+
+
+def test_procesar_qr_lote_no_reintenta_error_smtp_permanente(monkeypatch):
+    monkeypatch.setattr(db, 'obtener_clase_por_id', lambda cid: {'id': 5, 'cursada_id': 9, 'fecha': '2026-09-01', 'titulo': None, 'estado': 'abierta'})
+    monkeypatch.setattr(db, 'buscar_asistencias_por_ids', lambda ids: [
+        {'id': 1, 'codigo': 'AAAA2345', 'envio_intentos': 0, 'estudiantes': {'nombre': 'Ana', 'email': 'a@fi.uba.ar'}},
+    ])
+    monkeypatch.setattr(time, 'sleep', lambda *_: None)
+
+    llamadas = {'n': 0}
+
+    def siempre_falla(*a, **k):
+        llamadas['n'] += 1
+        raise smtplib.SMTPDataError(550, b'5.7.1 Mailbox unavailable')
+
+    monkeypatch.setattr(mailer, 'enviar_email_qr_asistencia', siempre_falla)
+    monkeypatch.setattr(db, 'registrar_envio_asistencia', lambda aid, ok, intentos, err: None)
+
+    resultado = emails.procesar_qr_lote({'clase_id': 5, 'asistencia_ids': [1]})
+
+    assert resultado['enviados'] == 0 and llamadas['n'] == 1
 
 
 def test_procesar_qr_lote_payload_invalido():

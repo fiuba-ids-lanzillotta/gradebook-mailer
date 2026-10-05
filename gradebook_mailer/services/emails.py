@@ -138,6 +138,11 @@ def _registrar_error_envio(asistencia_id: int, intentos: int, error: Exception) 
 
 def _es_error_transitorio_de_email(error) -> bool:
     """Indica si un error de SMTP parece transitorio de red/transporte."""
+    codigo = getattr(error, 'smtp_code', None)
+
+    if isinstance(codigo, int):
+        return 400 <= codigo < 500
+
     mensaje = str(error).lower()
 
     return (
@@ -147,6 +152,7 @@ def _es_error_transitorio_de_email(error) -> bool:
         or 'timed out' in mensaje
         or 'server disconnected' in mensaje
         or 'temporary failure' in mensaje
+        or 'try again later' in mensaje
     )
 
 
